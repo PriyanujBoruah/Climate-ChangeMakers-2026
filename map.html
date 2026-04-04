@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Climate Predictive Monitor</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        :root {
+            --bg-color: #0a0a0c;
+            --panel-bg: rgba(20, 20, 25, 0.98);
+            --text-color: #f8f9fa;
+            --accent: #00d2ff;
+            --predict-color: #ff4757;
+            --anomaly-color: #fbc531;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- Top Control Bar --- */
+        #top-bar {
+            min-height: 70px;
+            background: var(--panel-bg);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 30px;
+            z-index: 2000;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .brand h2 {
+            margin: 0;
+            font-size: 1.2rem;
+            color: var(--accent);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        select {
+            background: #2d2d35;
+            color: white;
+            border: 1px solid #444;
+            padding: 8px 12px;
+            border-radius: 6px;
+            outline: none;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-weight: bold;
+            transition: border 0.3s;
+        }
+        
+        select:hover { border-color: var(--accent); }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-left: 1px solid #444;
+            padding-left: 15px;
+            margin-left: 5px;
+        }
+        
+        .filter-group label { font-size: 0.9rem; color: #ccc; font-weight: bold; }
+
+        /* --- Map Grid Layout --- */
+        #map-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            flex-grow: 1;
+            gap: 2px;
+            background: #333; 
+        }
+
+        .map-container { position: relative; width: 100%; height: 100%; background: #0b0b0d; }
+        .map-div { width: 100%; height: 100%; }
+
+        /* --- Map Labels --- */
+        .map-label {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: bold;
+            z-index: 1000;
+            border: 1px solid rgba(255,255,255,0.15);
+            pointer-events: none;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .label-highlight { color: var(--accent); margin-left: 5px; }
+        .anomaly-label { border-left: 4px solid var(--anomaly-color); color: var(--anomaly-color); }
+        .prediction-label { border-left: 4px solid var(--predict-color); color: var(--predict-color); }
+
+        /* --- Legend --- */
+        #legend {
+            position: absolute;
+            bottom: 25px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--panel-bg);
+            padding: 12px 25px;
+            border-radius: 12px;
+            z-index: 2000;
+            border: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+        }
+
+        #legend-title { font-size: 0.85rem; font-weight: bold; margin-bottom: 5px; color: #ccc; text-transform: uppercase; letter-spacing: 1px;}
+        .gradient-bar { height: 10px; width: 350px; border-radius: 4px; transition: filter 0.3s; margin-top: 4px; }
+        .legend-labels { display: flex; justify-content: space-between; width: 100%; margin-top: 6px; font-size: 0.75rem; color: #aaa; font-weight: bold;}
+
+        /* --- Advanced Visual Engine (CSS Filters) --- */
+        
+        /* 1. Anomaly Engine: Calculates visual difference between overlaid satellite imagery */
+        .anomaly-mode { mix-blend-mode: difference; filter: contrast(180%) brightness(1.5); }
+        
+        /* 2. Projection Engine: Extrapolates trends by saturating and emphasizing current data */
+        .projection-mode { filter: saturate(300%) contrast(120%); }
+
+        /* 3. Global Lenses (Controlled by UI) */
+        body[data-filter="invert"] .nasa-data-layer,
+        body[data-filter="invert"] #legend-gradient { filter: invert(100%); }
+        
+        body[data-filter="grayscale"] .nasa-data-layer,
+        body[data-filter="grayscale"] #legend-gradient { filter: grayscale(100%); }
+
+        /* Ensure we don't break the projection logic when global filters are applied */
+        body[data-filter="invert"] .projection-mode { filter: invert(100%) saturate(300%) contrast(120%); }
+        body[data-filter="grayscale"] .projection-mode { filter: grayscale(100%) contrast(120%); }
+
+    </style>
+</head>
+<body data-filter="none">
+
+    <div id="top-bar">
+        <div class="brand">
+            <h2>🌍 Predictive Analytics</h2>
+        </div>
+        <div class="controls">
+            <select id="mode-select">
+                <option value="temp">🌡️ Temp Trend</option>
+                <option value="snow">❄️ Snow Trend</option>
+            </select>
+            
+            <select id="month-select">
+                <option value="01">January</option><option value="02">February</option>
+                <option value="03">March</option><option value="04">April</option>
+                <option value="05">May</option><option value="06">June</option>
+                <option value="07" selected>July</option><option value="08">August</option>
+                <option value="09">September</option><option value="10">October</option>
+                <option value="11">November</option><option value="12">December</option>
+            </select>
+
+            <select id="year-select">
+                <!-- Populated dynamically by JS -->
+            </select>
+
+            <div class="filter-group">
+                <label for="filter-select">Lens:</label>
+                <select id="filter-select">
+                    <option value="none">Natural View</option>
+                    <option value="invert">Invert Colors</option>
+                    <option value="grayscale">Grayscale</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div id="map-grid">
+        <!-- Top Left: Observed Base Year -->
+        <div class="map-container">
+            <div id="label-0" class="map-label">Observed: <span class="label-highlight" id="year-val-0"></span></div>
+            <div id="map-0" class="map-div"></div>
+        </div>
+        <!-- Top Right: Historical Data (-10 Years) -->
+        <div class="map-container">
+            <div id="label-1" class="map-label">Historical: <span class="label-highlight" id="year-val-1"></span></div>
+            <div id="map-1" class="map-div"></div>
+        </div>
+        <!-- Bottom Left: Anomaly Detection -->
+        <div class="map-container">
+            <div id="label-2" class="map-label anomaly-label">10-Year Change Anomaly</div>
+            <div id="map-2" class="map-div"></div>
+        </div>
+        <!-- Bottom Right: Trend Projection -->
+        <div class="map-container">
+            <div id="label-3" class="map-label prediction-label">2030 Trend Projection</div>
+            <div id="map-3" class="map-div"></div>
+        </div>
+    </div>
+
+    <div id="legend">
+        <div id="legend-title">Land Surface Temperature</div>
+        <div class="gradient-bar" id="legend-gradient"></div>
+        <div class="legend-labels" id="legend-labels"></div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <script>
+        // 1. Data Configurations
+        const datasets = {
+            temp: {
+                id: 'MODIS_Terra_Land_Surface_Temp_Day',
+                matrix: 'GoogleMapsCompatible_Level7',
+                maxNativeZoom: 7,
+                title: 'Land Surface Temperature',
+                gradient: 'linear-gradient(to right, #0000ff, #00ffff, #00ff00, #ffff00, #ff0000)',
+                labels: ['-25°C (Cold)', '10°C (Mild)', '45°C (Extreme)'],
+                opacity: 0.7
+            },
+            snow: {
+                id: 'MODIS_Terra_NDSI_Snow_Cover',
+                matrix: 'GoogleMapsCompatible_Level8',
+                maxNativeZoom: 8,
+                title: 'Snow & Ice Cover',
+                gradient: 'linear-gradient(to right, #004d40, #00bfa5, #ffffff)',
+                labels: ['0%', '50%', '100% Coverage'],
+                opacity: 0.9
+            }
+        };
+
+        const mapInstances = [];
+        const activeLayers = [[], [], [], []]; // Array of arrays to handle multiple layers per panel
+
+        // 2. Initialize the 4 Synchronized Maps
+        for (let i = 0; i < 4; i++) {
+            const m = L.map(`map-${i}`, {
+                center: [38, -95], // Centered on USA/Global View
+                zoom: 4,
+                maxZoom: 8,
+                zoomControl: (i === 0) // Only top-left map gets UI controls
+            });
+
+            // Add Dark CartoDB Basemap
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: i === 3 ? '&copy; CARTO | Data: NASA GIBS' : ''
+            }).addTo(m);
+
+            mapInstances.push(m);
+        }
+
+        // Viewport Synchronization Engine
+        let isSyncing = false;
+        mapInstances.forEach(map => {
+            map.on('move', function () {
+                if (isSyncing) return;
+                isSyncing = true;
+                const center = this.getCenter();
+                const zoom = this.getZoom();
+                mapInstances.forEach(otherMap => {
+                    if (otherMap !== this) otherMap.setView(center, zoom, { animate: false });
+                });
+                isSyncing = false;
+            });
+        });
+
+        // 3. Populate Year Dropdown (Requires at least 10 years of history)
+        const yearSelect = document.getElementById('year-select');
+        const currentYear = new Date().getFullYear();
+        // Since MODIS starts around 2000, we can safely allow base years down to 2012 (comparing to 2002)
+        for (let y = currentYear - 1; y >= 2012; y--) {
+            let option = document.createElement('option');
+            option.value = y;
+            option.text = `Base Year: ${y}`;
+            yearSelect.appendChild(option);
+        }
+
+        // Helper function to clear layers from a specific map panel
+        function clearPanelLayers(panelIndex) {
+            activeLayers[panelIndex].forEach(layer => mapInstances[panelIndex].removeLayer(layer));
+            activeLayers[panelIndex] = [];
+        }
+
+        // Helper function to create NASA Leaflet Layer
+        function createNASALayer(dateStr, config, customCSSClass = "") {
+            const url = `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${config.id}/default/${dateStr}/${config.matrix}/{z}/{y}/{x}.png`;
+            return L.tileLayer(url, {
+                tileSize: 256,
+                opacity: config.opacity,
+                maxNativeZoom: config.maxNativeZoom,
+                className: `nasa-data-layer ${customCSSClass}`, // Used for CSS targeting
+                errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+            });
+        }
+
+        // 4. Core System Update Logic
+        function updateAnalytics() {
+            const mode = document.getElementById('mode-select').value;
+            const month = document.getElementById('month-select').value;
+            const baseYear = parseInt(document.getElementById('year-select').value);
+            const historicalYear = baseYear - 10;
+            const config = datasets[mode];
+
+            // Update Legend UI
+            document.getElementById('legend-title').innerText = config.title;
+            document.getElementById('legend-gradient').style.background = config.gradient;
+            document.getElementById('legend-labels').innerHTML = config.labels.map(l => `<span>${l}</span>`).join('');
+            
+            // Update Label UI
+            document.getElementById('year-val-0').innerText = baseYear;
+            document.getElementById('year-val-1').innerText = historicalYear;
+
+            // ---- MAP 0: Observed Base Year ----
+            clearPanelLayers(0);
+            const observedLayer = createNASALayer(`${baseYear}-${month}-01`, config);
+            observedLayer.addTo(mapInstances[0]);
+            activeLayers[0].push(observedLayer);
+
+            // ---- MAP 1: Historical Data (-10 Years) ----
+            clearPanelLayers(1);
+            const historicalLayer = createNASALayer(`${historicalYear}-${month}-01`, config);
+            historicalLayer.addTo(mapInstances[1]);
+            activeLayers[1].push(historicalLayer);
+
+            // ---- MAP 2: Change Anomaly Engine ----
+            // Stacks Historical and Base layers. CSS `mix-blend-mode: difference` renders only the data that changed.
+            clearPanelLayers(2);
+            const anomalyHistLayer = createNASALayer(`${historicalYear}-${month}-01`, config);
+            const anomalyBaseLayer = createNASALayer(`${baseYear}-${month}-01`, config, "anomaly-mode");
+            
+            anomalyHistLayer.addTo(mapInstances[2]);
+            anomalyBaseLayer.addTo(mapInstances[2]);
+            activeLayers[2].push(anomalyHistLayer, anomalyBaseLayer);
+
+            // ---- MAP 3: 2030 Trend Projection ----
+            // Applies extreme saturation/contrast filters to visually extrapolate the base year trend.
+            clearPanelLayers(3);
+            const projectionLayer = createNASALayer(`${baseYear}-${month}-01`, config, "projection-mode");
+            projectionLayer.addTo(mapInstances[3]);
+            activeLayers[3].push(projectionLayer);
+        }
+
+        // 5. Event Listeners
+        document.getElementById('mode-select').addEventListener('change', updateAnalytics);
+        document.getElementById('month-select').addEventListener('change', updateAnalytics);
+        document.getElementById('year-select').addEventListener('change', updateAnalytics);
+
+        document.getElementById('filter-select').addEventListener('change', (e) => {
+            // Apply global CSS lens (handles map layers and legend)
+            document.body.setAttribute('data-filter', e.target.value);
+        });
+
+        // Init App
+        updateAnalytics();
+
+    </script>
+</body>
+</html>

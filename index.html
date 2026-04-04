@@ -180,6 +180,115 @@
 
         /* World View Specific Icon Size */
         .earth-btn span { font-size: 1.8rem; }
+
+
+        /* --- MOBILE RESPONSIVE STYLES --- */
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column; /* Stack vertically instead of side-by-side */
+                overflow-y: auto;       /* Allow the whole page to scroll */
+            }
+
+            #main-content {
+                order: 1;               /* Put the Main Search Area on top */
+                padding: 20px 15px;
+                overflow-y: visible;
+            }
+
+            #side-panel {
+                order: 2;               /* Put the Global Watchlist on the bottom */
+                width: 100%;
+                border-right: none;
+                border-top: 1px solid var(--border);
+                height: auto;
+            }
+
+            /* Limit watchlist height on mobile so user isn't scrolling forever */
+            #risk-list {
+                max-height: 500px; 
+            }
+
+            /* Shrink Headers */
+            .header-main h1 { font-size: 1.4rem; }
+            .header-main p { font-size: 0.7rem; }
+
+            /* Stack Search Box */
+            .search-box {
+                flex-direction: column;
+            }
+            
+            input[type="text"], .search-btn {
+                width: 100%;
+                box-sizing: border-box;
+                padding: 15px;
+            }
+
+            /* Make Table Swipeable */
+            .table-wrapper {
+                border-radius: 8px;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch; /* Smooth swiping on iOS */
+            }
+
+            table {
+                white-space: nowrap; /* Prevents columns from squishing together */
+            }
+            
+            th, td {
+                padding: 12px;
+                font-size: 0.8rem;
+            }
+
+            /* Adjust Map Floating Buttons (if using them on map.html) */
+            .floating-controls {
+                bottom: 15px;
+                right: 15px;
+                flex-direction: column; /* Stack buttons vertically on small screens */
+                gap: 10px;
+            }
+            
+            .glass-card-btn {
+                font-size: 0.75rem;
+            }
+        }
+
+        /* --- MOBILE RESPONSIVE FOR CARD BUTTONS --- */
+        @media (max-width: 768px) {
+            .floating-controls {
+                bottom: 20px;
+                right: 20px;
+                flex-direction: column; /* Stack buttons vertically on mobile */
+                align-items: flex-end;   /* Align them to the right edge */
+                gap: 12px;               /* Slightly tighter spacing */
+            }
+
+            .glass-card-btn {
+                width: auto;
+                min-width: 150px;       /* Ensure consistent width when stacked */
+            }
+
+            .btn-content {
+                padding: 8px 16px;      /* Tighter padding for small screens */
+                font-size: 0.7rem;      /* Smaller text */
+                letter-spacing: 1px;
+                gap: 8px;               /* Less space between icon and text */
+            }
+
+            /* Shrink the icons for mobile */
+            .glass-card-btn span {
+                font-size: 1.1rem !important; 
+            }
+
+            /* Special size for the earth icon on mobile */
+            .earth-btn span {
+                font-size: 1.4rem !important; 
+            }
+
+            /* Reduce the "lift" animation on mobile to prevent overlaps */
+            .glass-card-btn:hover {
+                transform: translateY(-4px) scale(1.01);
+            }
+        }
     </style>
 </head>
 <body>
@@ -187,7 +296,7 @@
     <!-- Sidebar: Named Hazard Monitor -->
     <div id="side-panel">
         <div class="side-header">
-            <h2>🌍 Human-Centric Hazard Scan</h2>
+            <h2>Predicted Hazards in the Next 24Hrs</h2>
             <div class="filter-group">
                 <label class="filter-option" style="grid-column: span 2;">
                     <input type="radio" name="disaster" value="all" checked onchange="applyFilter(this.value)">
@@ -219,8 +328,8 @@
     <!-- Main Content -->
     <div id="main-content">
         <div class="header-main">
-            <h1>DISASTER PREDICTION COMMAND</h1>
-            <p style="color:#555; font-size: 0.8rem; letter-spacing: 2px;">GLOBAL RISK EXTRAPOLATION ENGINE</p>
+            <h1>Advanced Climate Hazard Monitoring & Prediction</h1>
+            <p style="color:#555; font-size: 0.8rem; letter-spacing: 2px; line-height: 2em;">SUBMITTED BY <span style="color:#fff">SAANVI BORUAH</span> & <span style="color:#fff">PRIYANUJ BORUAH</span><br>FOR <span style="color:#fff">CLIMATE CHANGEMAKERS 2026</span></p>
         </div>
 
         <div class="search-box">
@@ -246,23 +355,22 @@
 
     <!-- Floating Glass Control Panel -->
     <div class="floating-controls">
-        
-        <!-- Animated World View Button -->
-        <a href="map.html" class="glass-card-btn earth-btn" onclick="map.setView([20, 0], 3);">
-            <div class="btn-content">
-                <span>🌍</span>
-                WORLD VIEW
-            </div>
-        </a>
 
         <!-- Animated Dashboard Button -->
         <a href="map.html" class="glass-card-btn dash-btn">
             <div class="btn-content">
-                <span>📊</span>
-                DASHBOARD
+                <span>🗺️</span>
+                Heat & Snow Map
             </div>
         </a>
-
+        
+        <!-- Animated World View Button -->
+        <a href="https://climate-changemakers-3d-2026.onrender.com/" class="glass-card-btn earth-btn" onclick="map.setView([20, 0], 3);">
+            <div class="btn-content">
+                <span>🌍</span>
+                3D Global Heat Impact
+            </div>
+        </a>
     </div>
 
     <script>
@@ -387,38 +495,79 @@
 
         let globalHits = [];
 
-        // 2. Scan Logic
+        // --- CONFIGURATION ---
+        const CACHE_KEY = "disaster_data_cache";
+        const CACHE_DURATION = 60 * 60 * 1000; // 1 Hour in milliseconds
+        const CHUNK_SIZE = 50; // Locations per API call
+
         async function scanTheWorld() {
             const riskList = document.getElementById('risk-list');
-            const lats = WATCHLIST.map(w => w.lat).join(',');
-            const lons = WATCHLIST.map(w => w.lon).join(',');
+            
+            // 1. Check Cache first to save API rates
+            const cached = localStorage.getItem(CACHE_KEY);
+            if (cached) {
+                const { timestamp, data } = JSON.parse(cached);
+                if (Date.now() - timestamp < CACHE_DURATION) {
+                    console.log("🚀 Loading from Cache (API Rates Saved)");
+                    globalHits = data;
+                    updateCounters();
+                    applyFilter('all');
+                    return;
+                }
+            }
 
-            try {
-                // Batch request for all cities
-                const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&daily=weathercode,windgusts_10m_max,precipitation_sum&forecast_days=2&timezone=auto`);
-                const data = await res.json();
-                
-                globalHits = [];
-                data.forEach((loc, i) => {
-                    const wind = loc.daily.windgusts_10m_max[1];
-                    const rain = loc.daily.precipitation_sum[1];
-                    const code = loc.daily.weathercode[1];
-                    const info = WATCHLIST[i];
+            // 2. If no cache, perform Chunked Batch Scan
+            console.log("📡 Performing Global Batch Scan...");
+            riskList.innerHTML = `<p style="text-align:center; color:#555; font-size:0.7rem;">Syncing 350+ Global Sensors...</p>`;
+            
+            globalHits = [];
+            
+            // Split WATCHLIST into chunks of 50
+            for (let i = 0; i < WATCHLIST.length; i += CHUNK_SIZE) {
+                const chunk = WATCHLIST.slice(i, i + CHUNK_SIZE);
+                const lats = chunk.map(w => w.lat).join(',');
+                const lons = chunk.map(w => w.lon).join(',');
 
-                    if (wind > 50 || rain > 20 || code >= 95) {
-                        globalHits.push({
-                            type: getDisasterType(code, wind, rain),
-                            name: info.n,
-                            country: info.c,
-                            wind,
-                            rain
-                        });
-                    }
-                });
+                try {
+                    const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&daily=weathercode,windgusts_10m_max,precipitation_sum&forecast_days=2&timezone=auto`);
+                    const data = await res.json();
+                    
+                    // Handle both single return and array return from API
+                    const dataArray = Array.isArray(data) ? data : [data];
 
-                updateCounters();
-                applyFilter('all');
-            } catch (e) { riskList.innerHTML = "Sensor Grid Offline."; }
+                    dataArray.forEach((loc, index) => {
+                        const wind = loc.daily.windgusts_10m_max[1];
+                        const rain = loc.daily.precipitation_sum[1];
+                        const code = loc.daily.weathercode[1];
+                        const info = chunk[index];
+
+                        if (wind > 50 || rain > 20 || code >= 95) {
+                            globalHits.push({
+                                type: getDisasterType(code, wind, rain),
+                                name: info.n,
+                                country: info.c,
+                                wind,
+                                rain
+                            });
+                        }
+                    });
+
+                    // 3. Staggering: Wait 500ms before the next chunk to be polite to the server
+                    await new Promise(resolve => setTimeout(resolve, 500));
+
+                } catch (e) {
+                    console.error("Chunk failed:", e);
+                }
+            }
+
+            // 4. Save to Cache
+            localStorage.setItem(CACHE_KEY, JSON.stringify({
+                timestamp: Date.now(),
+                data: globalHits
+            }));
+
+            updateCounters();
+            applyFilter('all');
         }
 
         // 3. Filtering Engine
